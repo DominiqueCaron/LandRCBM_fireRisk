@@ -1,0 +1,11 @@
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+cache/
+inputs/
+R/4.2/
+figures/
+.secrets
+.Rprofile
+tests/testdata/cbm_vars.rds
