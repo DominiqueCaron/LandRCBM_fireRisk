@@ -8,7 +8,7 @@ defineModule(sim, list(
   name = "LandRCBM_fireRisk",
   description = "",
   keywords = "",
-  authors = structure(list(list(given = "Dominique", family = "Caron", role = c("aut", "cre"), email = "dominique.caron@nrcan-rncan.gc.ac")), class = "person"),
+  authors = structure(list(list(given = "Dominique", family = "Caron", role = c("aut", "cre"), email = "dominique.caron@nrcan-rncan.gc.ca")), class = "person"),
   childModules = character(0),
   version = list(LandRCBM_fireRisk = "0.0.0.9000"),
   timeframe = as.POSIXlt(c(NA, NA)),
@@ -17,7 +17,7 @@ defineModule(sim, list(
   documentation = list("NEWS.md", "README.md", "LandRCBM_fireRisk.Rmd"),
   reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table"),
   parameters = bindrows(
-    defineParameter("iterations", "numeric", 100000L, 100L, NA, "Number of simulations of annual fires used to esimate probability of burning of pixels."),
+    defineParameter("iterations", "numeric", 100000L, 100L, NA, "Number of simulations of annual fires used to estimate probability of burning of pixels."),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -45,12 +45,13 @@ defineModule(sim, list(
     expectsInput("cbm_vars", "list", desc = paste("List of 5 data tables defining active cohorts in the current year:",
                                                   "key, parameters, pools, flux, and state.",
                                                   "This is created initially during the spinup and updated each year.")),
-    expectsInput("cTransfers", "data.table", desc = "Carbon transfer values table with associated disturbance names and IDs.")
+    expectsInput("cTransfers", "data.table", desc = "Carbon transfer values table with associated disturbance names and IDs."),
+    expectsInput("rasterToMatch", "SpatRaster", desc = "Raster template used to rasterize the fire susceptibility output.")
   ),
   outputObjects = bindrows(
     #createsOutput("objectName", "objectClass", "output object description", ...),
     createsOutput(objectName = "fireProbability", objectClass = "SpatRaster", desc = "Burn probability raster."),
-    createsOutput(objectName = "fireSusceptility", objectClass = "SpatRaster", desc = "Raster of carbon emitted to the atmosphere if burned."),
+    createsOutput(objectName = "fireSusceptibility", objectClass = "SpatRaster", desc = "Raster of carbon emitted to the atmosphere if burned."),
     createsOutput(objectName = "fireRisk", objectClass = "SpatRaster", desc = "Raster of fire risk to carbon.")
   )
 ))
@@ -83,9 +84,9 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
       
       sim$fireProbability <- calculateFireProbability(sim$pIgnition, sim$pEscape, sim$pSpread, P(sim)$iterations)
       
-      sim$fireSusceptility <- calculateFireSusceptility(sim$cbm_vars, sim$cTransfer)
+      sim$fireSusceptibility <- calculateFireSusceptibility(sim$cbm_vars, sim$cTransfers, sim$rasterToMatch)
       
-      sim$fireRisk <- sim$fireProbability * sim$fireSusceptility
+      sim$fireRisk <- sim$fireProbability * sim$fireSusceptibility
 
       # schedule future event(s)
       sim <- scheduleEvent(sim, min(time(sim) + 1, end(sim)), "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
@@ -146,10 +147,10 @@ simulateFire <- function(ign_probs, esc_probs, spread_probs, landscape){
   return(fires)
 }
 
-calculateFireSusceptility <- function(cbm_vars, cTransfer, rasterToMatch){
-  # keep only rows needed in cTransfer: spatial units and transfer to the atmosphere
+calculateFireSusceptibility <- function(cbm_vars, cTransfers, rasterToMatch){
+  # keep only rows needed in cTransfers: spatial units and transfer to the atmosphere
   spuids <- unique(cbm_vars$state$spatial_unit_id)
-  transfers <- cTransfer[cTransfer$disturbance_type_id == 1 & cTransfer$spatial_unit_id %in% spuids, ]
+  transfers <- cTransfers[cTransfers$disturbance_type_id == 1 & cTransfers$spatial_unit_id %in% spuids, ]
   transfers <- transfers[transfers$sink_pool %in% c("CO2", "CO", "CH4"),]
   
   # apply each transfer to the cohort groups
@@ -168,10 +169,10 @@ calculateFireSusceptility <- function(cbm_vars, cTransfer, rasterToMatch){
   pixelConsequences <- pixelConsequences[ , .(consequence = sum(consequence)), by = "pixelIndex"]
   
   # rasterize
-  fireSusceptility <- rast(rasterToMatch, names = "fireSusceptility", vals = NA)
-  fireSusceptility[pixelConsequences$pixelIndex] <- pixelConsequences$consequence
+  fireSusceptibility <- rast(rasterToMatch, names = "fireSusceptibility", vals = NA)
+  fireSusceptibility[pixelConsequences$pixelIndex] <- pixelConsequences$consequence
   
-  return(fireSusceptility)
+  return(fireSusceptibility)
 }
 
 ### template for plot events
