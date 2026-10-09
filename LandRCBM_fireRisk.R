@@ -18,11 +18,6 @@ defineModule(sim, list(
   reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table"),
   loadOrder = list(after = c("fireSense_burnProbability", "scfm_burnProbability")),
   parameters = bindrows(
-    defineParameter("fireModel", "character", NA, NA, NA,
-                    paste("Which burn-probability module supplies `sim$fireProbability`: `\"fireSense\"`",
-                          "(reads `sim$fireSense_BurnProbability`) or `\"scfm\"` (reads",
-                          "`sim$scfm_BurnProbability`). `NA` (default) auto-detects: whichever of the two",
-                          "is supplied; an error if both or neither are.")),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -44,12 +39,9 @@ defineModule(sim, list(
   ),
   inputObjects = bindrows(
     #expectsInput("objectName", "objectClass", "input object description", sourceURL, ...),
-    expectsInput("fireSense_BurnProbability", "SpatRaster", sourceURL = NA,
-                 desc = paste("Per-pixel burn probability for this year, from `fireSense_burnProbability`.",
-                              "Required unless `scfm_BurnProbability` is supplied instead (see `fireModel`).")),
-    expectsInput("scfm_BurnProbability", "SpatRaster", sourceURL = NA,
-                 desc = paste("Per-pixel burn probability for this year, from `scfm_burnProbability`.",
-                              "Required unless `fireSense_BurnProbability` is supplied instead (see `fireModel`).")),
+    expectsInput("burnProbability", "SpatRaster", sourceURL = NA,
+                 desc = paste("Per-pixel burn probability for this year, from either",
+                              "`fireSense_burnProbability` or `scfm_burnProbability`.")),
     expectsInput("cbm_vars", "list", desc = paste("List of 5 data tables defining active cohorts in the current year:",
                                                   "key, parameters, pools, flux, and state.",
                                                   "This is created initially during the spinup and updated each year.")),
@@ -59,8 +51,9 @@ defineModule(sim, list(
   outputObjects = bindrows(
     #createsOutput("objectName", "objectClass", "output object description", ...),
     createsOutput(objectName = "fireProbability", objectClass = "SpatRaster",
-                  desc = paste("Burn probability raster for this year, taken directly from whichever of",
-                               "`fireSense_burnProbability` or `scfm_burnProbability` supplied it (see `fireModel`).")),
+                  desc = paste("Burn probability raster for this year, taken directly from",
+                               "`sim$burnProbability` (as supplied by either `fireSense_burnProbability`",
+                               "or `scfm_burnProbability`).")),
     createsOutput(objectName = "fireSusceptibility", objectClass = "SpatRaster", desc = "Raster of carbon emitted to the atmosphere if burned."),
     createsOutput(objectName = "fireRisk", objectClass = "SpatRaster", desc = "Raster of fire risk to carbon.")
   )
@@ -102,7 +95,7 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     },
     calculateFireRisk = {
       
-      sim$fireProbability <- getBurnProbability(sim, P(sim)$fireModel)
+      sim$fireProbability <- getBurnProbability(sim)
       
       sim$fireSusceptibility <- calculateFireSusceptibility(sim$cbm_vars, sim$cTransfers, sim$rasterToMatch)
       
@@ -122,48 +115,19 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
 #' This year's burn probability, from whichever `*_burnProbability` module supplied it
 #'
 #' `fireSense_burnProbability` and `scfm_burnProbability` both estimate per-pixel burn
-#' probability by Monte Carlo (see their manuals), writing `sim$fireSense_BurnProbability`
-#' and `sim$scfm_BurnProbability` respectively. This module no longer estimates burn
-#' probability itself: it only reads one of these two rasters.
+#' probability by Monte Carlo (see their manuals), writing `sim$burnProbability`. This
+#' module no longer estimates burn probability itself: it only reads that raster.
 #'
 #' @param sim A `simList`.
-#' @param fireModel `P(sim)$fireModel`: `"fireSense"`, `"scfm"`, or `NA` to auto-detect
-#'   from whichever of the two inputs is supplied.
 #'
-#' @return `SpatRaster`; `sim$fireSense_BurnProbability` or `sim$scfm_BurnProbability`.
-getBurnProbability <- function(sim, fireModel) {
-  hasFireSense <- !is.null(sim$fireSense_BurnProbability)
-  hasScfm <- !is.null(sim$scfm_BurnProbability)
-
-  if (is.na(fireModel)) {
-    if (hasFireSense && hasScfm) {
-      stop("LandRCBM_fireRisk: both sim$fireSense_BurnProbability and sim$scfm_BurnProbability ",
-           "are supplied; set P(sim)$fireModel to \"fireSense\" or \"scfm\" to pick one.", call. = FALSE)
-    }
-    if (!hasFireSense && !hasScfm) {
-      stop("LandRCBM_fireRisk: neither sim$fireSense_BurnProbability nor sim$scfm_BurnProbability ",
-           "is supplied. Run fireSense_burnProbability or scfm_burnProbability first.", call. = FALSE)
-    }
-    fireModel <- if (hasFireSense) "fireSense" else "scfm"
+#' @return `SpatRaster`; `sim$burnProbability`.
+getBurnProbability <- function(sim) {
+  if (is.null(sim$burnProbability)) {
+    stop("LandRCBM_fireRisk: sim$burnProbability is not supplied. Run fireSense_burnProbability ",
+         "or scfm_burnProbability first.", call. = FALSE)
   }
 
-  switch(
-    fireModel,
-    fireSense = {
-      if (!hasFireSense)
-        stop("LandRCBM_fireRisk: P(sim)$fireModel is \"fireSense\" but sim$fireSense_BurnProbability ",
-             "is not supplied. Run fireSense_burnProbability first.", call. = FALSE)
-      sim$fireSense_BurnProbability
-    },
-    scfm = {
-      if (!hasScfm)
-        stop("LandRCBM_fireRisk: P(sim)$fireModel is \"scfm\" but sim$scfm_BurnProbability ",
-             "is not supplied. Run scfm_burnProbability first.", call. = FALSE)
-      sim$scfm_BurnProbability
-    },
-    stop("LandRCBM_fireRisk: P(sim)$fireModel must be \"fireSense\", \"scfm\", or NA; got \"",
-         fireModel, "\".", call. = FALSE)
-  )
+  sim$burnProbability
 }
 
 calculateFireSusceptibility <- function(cbm_vars, cTransfers, rasterToMatch){

@@ -8,8 +8,7 @@
   Removed the `iterations` parameter and the `pIgnition`/`pEscape`/`pSpread`
   inputs, along with the internal `calculateFireProbability()`/`simulateFire()`
   Monte Carlo simulation (and the `SpaDES.tools` dependency it needed).
-- Added a `fireModel` parameter (`"fireSense"`, `"scfm"`, or `NA` to
-  auto-detect) and two new inputs, `fireSense_BurnProbability` and
-  `scfm_BurnProbability`, read from the new `fireSense_burnProbability` and
-  `scfm_burnProbability` modules respectively. `sim$fireProbability` is now set
-  directly from whichever of these two is supplied.
+- Added a single new input, `burnProbability`, read from either the
+  `fireSense_burnProbability` or `scfm_burnProbability` module (both now write
+  a standardized `sim$burnProbability` output). `sim$fireProbability` is set
+  directly from `sim$burnProbability`.

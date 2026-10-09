@@ -55,17 +55,8 @@ their own Monte Carlo ignition/escape/spread simulation internally; that logic
 has moved out to two dedicated modules, `fireSense_burnProbability` and
 `scfm_burnProbability`, which each estimate per-pixel burn probability by Monte
 Carlo from their respective fire models (fireSense or scfm) and write it to
-`sim$fireSense_BurnProbability` / `sim$scfm_BurnProbability`. `LandRCBM_fireRisk`
-simply reads whichever of the two is supplied.
-
-The `fireModel` parameter controls which one it reads:
-
-- `"fireSense"`: requires `sim$fireSense_BurnProbability` (from
-  `fireSense_burnProbability`).
-- `"scfm"`: requires `sim$scfm_BurnProbability` (from `scfm_burnProbability`).
-- `NA` (default): auto-detects -- uses whichever of the two inputs is supplied.
-  It is an error if both are supplied (ambiguous) or if neither is (nothing to
-  read).
+`sim$burnProbability`. `LandRCBM_fireRisk` simply reads that raster, whichever
+of the two modules supplied it.
 
 `sim$fireProbability` is set to that raster unchanged; `sim$fireRisk` is then
 `fireProbability * fireSusceptibility`.
@@ -75,10 +66,8 @@ The `fireModel` parameter controls which one it reads:
 Describe input data required by the module and how to obtain it (e.g., directly from online sources or supplied by other modules)
 If `sourceURL` is specified, `downloadData("LandRCBM_fireRisk", "C:/Users/docaron/Documents/repos")` may be sufficient.
 
-Run `fireSense_burnProbability` or `scfm_burnProbability` (or both, if you intend
-to switch `fireModel` between runs) before `LandRCBM_fireRisk` so that
-`sim$fireSense_BurnProbability` or `sim$scfm_BurnProbability` is available when
-`calculateFireRisk` runs.
+Run `fireSense_burnProbability` or `scfm_burnProbability` before `LandRCBM_fireRisk`
+so that `sim$burnProbability` is available when `calculateFireRisk` runs.
 
 Table \@ref(tab:moduleInputs-LandRCBM-fireRisk) shows the full list of module inputs.
 
@@ -102,11 +91,10 @@ knitr::kable(df_params, caption = "List of (ref:LandRCBM-fireRisk) parameters an
 
 - `init`: schedules the first `calculateFireRisk` at `start(sim)`, and the first
   `plot` and `save` events.
-- `calculateFireRisk`: sets `sim$fireProbability` from whichever
-  `*_burnProbability` module supplied it (see `fireModel` above), computes
-  `sim$fireSusceptibility` from `sim$cbm_vars` and `sim$cTransfers`, and sets
-  `sim$fireRisk <- fireProbability * fireSusceptibility`. Reschedules itself
-  annually until `end(sim)`.
+- `calculateFireRisk`: sets `sim$fireProbability` from `sim$burnProbability`
+  (see above), computes `sim$fireSusceptibility` from `sim$cbm_vars` and
+  `sim$cTransfers`, and sets `sim$fireRisk <- fireProbability * fireSusceptibility`.
+  Reschedules itself annually until `end(sim)`.
 - `plot`, `save`: template events; see source for current behaviour.
 
 ### Plotting
@@ -120,10 +108,11 @@ Write what is saved.
 ### Module outputs
 
 Description of the module outputs (Table \@ref(tab:moduleOutputs-LandRCBM-fireRisk)).
-`fireProbability` is passed through unchanged from `sim$fireSense_BurnProbability`
-or `sim$scfm_BurnProbability`; see those modules' manuals for how to interpret it
-(in particular, it is a per-year Monte Carlo estimate, not an exact probability,
-and does not capture spatial dependence between pixels).
+`fireProbability` is passed through unchanged from `sim$burnProbability`; see
+`fireSense_burnProbability`'s or `scfm_burnProbability`'s manual (whichever
+supplied it) for how to interpret it (in particular, it is a per-year Monte
+Carlo estimate, not an exact probability, and does not capture spatial
+dependence between pixels).
 
 ```{r moduleOutputs-LandRCBM-fireRisk, echo = FALSE, eval = TRUE, message = FALSE, warning = FALSE}
 df_outputs <- SpaDES.core::moduleOutputs("LandRCBM_fireRisk", "C:/Users/docaron/Documents/repos")
@@ -133,9 +122,8 @@ knitr::kable(df_outputs, caption = "List of (ref:LandRCBM-fireRisk) outputs and 
 
 ### Links to other modules
 
-- `fireSense_burnProbability` or `scfm_burnProbability` (exactly one, per
-  `fireModel`) must run before `LandRCBM_fireRisk`, supplying
-  `fireSense_BurnProbability` or `scfm_BurnProbability`.
+- `fireSense_burnProbability` or `scfm_burnProbability` (either one) must run
+  before `LandRCBM_fireRisk`, supplying `burnProbability`.
 - `LandRCBM`/`CBM_core` modules supply `cbm_vars` and `cTransfers`, used to
   compute `fireSusceptibility`.
 
