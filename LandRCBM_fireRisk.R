@@ -50,10 +50,6 @@ defineModule(sim, list(
   ),
   outputObjects = bindrows(
     #createsOutput("objectName", "objectClass", "output object description", ...),
-    createsOutput(objectName = "fireProbability", objectClass = "SpatRaster",
-                  desc = paste("Burn probability raster for this year, taken directly from",
-                               "`sim$burnProbability` (as supplied by either `fireSense_burnProbability`",
-                               "or `scfm_burnProbability`).")),
     createsOutput(objectName = "fireSusceptibility", objectClass = "SpatRaster", desc = "Raster of carbon emitted to the atmosphere if burned."),
     createsOutput(objectName = "fireRisk", objectClass = "SpatRaster", desc = "Raster of fire risk to carbon.")
   )
@@ -95,11 +91,9 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     },
     calculateFireRisk = {
       
-      sim$fireProbability <- getBurnProbability(sim)
-      
       sim$fireSusceptibility <- calculateFireSusceptibility(sim$cbm_vars, sim$cTransfers, sim$rasterToMatch)
       
-      sim$fireRisk <- sim$fireProbability * sim$fireSusceptibility
+      sim$fireRisk <- sim$burnProbability * sim$fireSusceptibility
 
       # schedule future event(s)
       if (time(sim) < end(sim)) {
@@ -110,24 +104,6 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     warning(noEventWarning(sim))
   )
   return(invisible(sim))
-}
-
-#' This year's burn probability, from whichever `*_burnProbability` module supplied it
-#'
-#' `fireSense_burnProbability` and `scfm_burnProbability` both estimate per-pixel burn
-#' probability by Monte Carlo (see their manuals), writing `sim$burnProbability`. This
-#' module no longer estimates burn probability itself: it only reads that raster.
-#'
-#' @param sim A `simList`.
-#'
-#' @return `SpatRaster`; `sim$burnProbability`.
-getBurnProbability <- function(sim) {
-  if (is.null(sim$burnProbability)) {
-    stop("LandRCBM_fireRisk: sim$burnProbability is not supplied. Run fireSense_burnProbability ",
-         "or scfm_burnProbability first.", call. = FALSE)
-  }
-
-  sim$burnProbability
 }
 
 calculateFireSusceptibility <- function(cbm_vars, cTransfers, rasterToMatch){

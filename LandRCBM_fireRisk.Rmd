@@ -58,8 +58,7 @@ Carlo from their respective fire models (fireSense or scfm) and write it to
 `sim$burnProbability`. `LandRCBM_fireRisk` simply reads that raster, whichever
 of the two modules supplied it.
 
-`sim$fireProbability` is set to that raster unchanged; `sim$fireRisk` is then
-`fireProbability * fireSusceptibility`.
+`sim$fireRisk` is `burnProbability * fireSusceptibility`.
 
 ### Module inputs and parameters
 
@@ -91,9 +90,9 @@ knitr::kable(df_params, caption = "List of (ref:LandRCBM-fireRisk) parameters an
 
 - `init`: schedules the first `calculateFireRisk` at `start(sim)`, and the first
   `plot` and `save` events.
-- `calculateFireRisk`: sets `sim$fireProbability` from `sim$burnProbability`
-  (see above), computes `sim$fireSusceptibility` from `sim$cbm_vars` and
-  `sim$cTransfers`, and sets `sim$fireRisk <- fireProbability * fireSusceptibility`.
+- `calculateFireRisk`: computes `sim$fireSusceptibility` from `sim$cbm_vars`
+  and `sim$cTransfers`, and sets
+  `sim$fireRisk <- sim$burnProbability * fireSusceptibility`.
   Reschedules itself annually until `end(sim)`.
 - `plot`, `save`: template events; see source for current behaviour.
 
@@ -108,11 +107,11 @@ Write what is saved.
 ### Module outputs
 
 Description of the module outputs (Table \@ref(tab:moduleOutputs-LandRCBM-fireRisk)).
-`fireProbability` is passed through unchanged from `sim$burnProbability`; see
+`fireRisk` is `sim$burnProbability * fireSusceptibility`; see
 `fireSense_burnProbability`'s or `scfm_burnProbability`'s manual (whichever
-supplied it) for how to interpret it (in particular, it is a per-year Monte
-Carlo estimate, not an exact probability, and does not capture spatial
-dependence between pixels).
+supplied `burnProbability`) for how to interpret it (in particular, it is a
+per-year Monte Carlo estimate, not an exact probability, and does not capture
+spatial dependence between pixels).
 
 ```{r moduleOutputs-LandRCBM-fireRisk, echo = FALSE, eval = TRUE, message = FALSE, warning = FALSE}
 df_outputs <- SpaDES.core::moduleOutputs("LandRCBM_fireRisk", "C:/Users/docaron/Documents/repos")
