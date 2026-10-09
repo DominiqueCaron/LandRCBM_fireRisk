@@ -15,7 +15,7 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("NEWS.md", "README.md", "LandRCBM_fireRisk.Rmd"),
-  reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table"),
+  reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table", "SpaDES.tools"),
   parameters = bindrows(
     defineParameter("iterations", "numeric", 100000L, 100L, NA, "Number of simulations of annual fires used to estimate probability of burning of pixels."),
     defineParameter(".plots", "character", "screen", NA, NA,
@@ -80,6 +80,16 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
 
       # ! ----- STOP EDITING ----- ! #
     },
+    save = {
+      # ! ----- EDIT BELOW ----- ! #
+      # do stuff for this event
+      saveFiles(sim)
+
+      # schedule future event(s)
+      sim <- scheduleEvent(sim, time(sim) + P(sim)$.saveInterval, "LandRCBM_fireRisk", "save")
+
+      # ! ----- STOP EDITING ----- ! #
+    },
     calculateFireRisk = {
       
       sim$fireProbability <- calculateFireProbability(sim$pIgnition, sim$pEscape, sim$pSpread, P(sim)$iterations)
@@ -89,7 +99,9 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
       sim$fireRisk <- sim$fireProbability * sim$fireSusceptibility
 
       # schedule future event(s)
-      sim <- scheduleEvent(sim, min(time(sim) + 1, end(sim)), "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+      if (time(sim) < end(sim)) {
+        sim <- scheduleEvent(sim, min(time(sim) + 1, end(sim)), "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+      }
 
     },
     warning(noEventWarning(sim))
@@ -123,14 +135,18 @@ calculateFireProbability <- function(pIgnition, pEscape, pSpread, iterations = 1
   
   # Add the probability of ignition and the probability that a fire ignited 
   # in another pixel spread to a given pixels
-  values(fireProbability) <- fires / iterations + ign_probs
+  # Clamp to [0, 1]: the sum is not itself guaranteed to be a valid probability
+  values(fireProbability) <- pmin(pmax(fires / iterations + ign_probs, 0), 1)
   return(fireProbability)
 }
 
 simulateFire <- function(ign_probs, esc_probs, spread_probs, landscape){
   ignitions <- runif(length(ign_probs)) < ign_probs
   # predict escapes
-  esc_probs2 <- esc_probs[ignitions] |> na.omit()
+  # NA escape probabilities are treated as "does not escape" (0) rather than dropped,
+  # to keep indices aligned with which(ignitions)
+  esc_probs2 <- esc_probs[ignitions]
+  esc_probs2[is.na(esc_probs2)] <- 0
   escapes <- runif(length(esc_probs2)) < esc_probs2
   
   startSpread <- which(ignitions)[escapes]
@@ -156,7 +172,7 @@ calculateFireSusceptibility <- function(cbm_vars, cTransfers, rasterToMatch){
   # apply each transfer to the cohort groups
   cohortGroupConsequences <- rep(0L, nrow(cbm_vars$pools))
   
-  for (i in c(1:nrow(transfers))){
+  for (i in seq_len(nrow(transfers))){
     t <- transfers[i,]
     
     cohortGroups <- (cbm_vars$state$sw_hw == (t$sw_hw == "hw")) & cbm_vars$state$spatial_unit_id == t$spatial_unit_id
