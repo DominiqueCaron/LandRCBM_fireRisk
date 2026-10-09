@@ -15,9 +15,14 @@ defineModule(sim, list(
   timeunit = "year",
   citation = list("citation.bib"),
   documentation = list("NEWS.md", "README.md", "LandRCBM_fireRisk.Rmd"),
-  reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table", "SpaDES.tools"),
+  reqdPkgs = list("PredictiveEcology/SpaDES.core@development (>= 3.1.2.9005)", "ggplot2", "terra", "data.table"),
+  loadOrder = list(after = c("fireSense_burnProbability", "scfm_burnProbability")),
   parameters = bindrows(
-    defineParameter("iterations", "numeric", 100000L, 100L, NA, "Number of simulations of annual fires used to estimate probability of burning of pixels."),
+    defineParameter("fireModel", "character", NA, NA, NA,
+                    paste("Which burn-probability module supplies `sim$fireProbability`: `\"fireSense\"`",
+                          "(reads `sim$fireSense_BurnProbability`) or `\"scfm\"` (reads",
+                          "`sim$scfm_BurnProbability`). `NA` (default) auto-detects: whichever of the two",
+                          "is supplied; an error if both or neither are.")),
     defineParameter(".plots", "character", "screen", NA, NA,
                     "Used by Plots function, which can be optionally used here"),
     defineParameter(".plotInitialTime", "numeric", start(sim), NA, NA,
@@ -39,9 +44,12 @@ defineModule(sim, list(
   ),
   inputObjects = bindrows(
     #expectsInput("objectName", "objectClass", "input object description", sourceURL, ...),
-    expectsInput("pEscape", "SpatRaster", desc = "escape probability raster."),
-    expectsInput("pIgnition", "SpatRaster", desc = "ignition probability raster."),
-    expectsInput("pSpread", "SpatRaster", desc = "spread probability raster."),
+    expectsInput("fireSense_BurnProbability", "SpatRaster", sourceURL = NA,
+                 desc = paste("Per-pixel burn probability for this year, from `fireSense_burnProbability`.",
+                              "Required unless `scfm_BurnProbability` is supplied instead (see `fireModel`).")),
+    expectsInput("scfm_BurnProbability", "SpatRaster", sourceURL = NA,
+                 desc = paste("Per-pixel burn probability for this year, from `scfm_burnProbability`.",
+                              "Required unless `fireSense_BurnProbability` is supplied instead (see `fireModel`).")),
     expectsInput("cbm_vars", "list", desc = paste("List of 5 data tables defining active cohorts in the current year:",
                                                   "key, parameters, pools, flux, and state.",
                                                   "This is created initially during the spinup and updated each year.")),
@@ -50,7 +58,9 @@ defineModule(sim, list(
   ),
   outputObjects = bindrows(
     #createsOutput("objectName", "objectClass", "output object description", ...),
-    createsOutput(objectName = "fireProbability", objectClass = "SpatRaster", desc = "Burn probability raster."),
+    createsOutput(objectName = "fireProbability", objectClass = "SpatRaster",
+                  desc = paste("Burn probability raster for this year, taken directly from whichever of",
+                               "`fireSense_burnProbability` or `scfm_burnProbability` supplied it (see `fireModel`).")),
     createsOutput(objectName = "fireSusceptibility", objectClass = "SpatRaster", desc = "Raster of carbon emitted to the atmosphere if burned."),
     createsOutput(objectName = "fireRisk", objectClass = "SpatRaster", desc = "Raster of fire risk to carbon.")
   )
@@ -92,7 +102,7 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     },
     calculateFireRisk = {
       
-      sim$fireProbability <- calculateFireProbability(sim$pIgnition, sim$pEscape, sim$pSpread, P(sim)$iterations)
+      sim$fireProbability <- getBurnProbability(sim, P(sim)$fireModel)
       
       sim$fireSusceptibility <- calculateFireSusceptibility(sim$cbm_vars, sim$cTransfers, sim$rasterToMatch)
       
@@ -109,58 +119,51 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
   return(invisible(sim))
 }
 
-calculateFireProbability <- function(pIgnition, pEscape, pSpread, iterations = 100L){
-  
-  # Set up the progress bar
-  pb <- txtProgressBar(min = 1, max = iterations, style = 3)
-  
-  # Get the probabilities as vectors
-  ign_probs <- values(pIgnition)
-  esc_probs <- values(pEscape)
-  spread_probs <- values(pSpread)
-  
-  # Set up the number of fires for each cell
-  fires <- rep(0, ncell(pSpread))
-  
-  # Repeat ignition, escape, spread x times to estimate the probability that a fire 
-  # spreads to pixels (the fire must not be ignited in that same pixels)
-  for (i in 1:iterations) {
-    fires <- fires + simulateFire(ign_probs, esc_probs, spread_probs, pSpread)
-    # Print progress
-    setTxtProgressBar(pb, i)
-  }
-  
-  # Create the fire probability raster
-  fireProbability <- rast(pSpread)
-  
-  # Add the probability of ignition and the probability that a fire ignited 
-  # in another pixel spread to a given pixels
-  # Clamp to [0, 1]: the sum is not itself guaranteed to be a valid probability
-  values(fireProbability) <- pmin(pmax(fires / iterations + ign_probs, 0), 1)
-  return(fireProbability)
-}
+#' This year's burn probability, from whichever `*_burnProbability` module supplied it
+#'
+#' `fireSense_burnProbability` and `scfm_burnProbability` both estimate per-pixel burn
+#' probability by Monte Carlo (see their manuals), writing `sim$fireSense_BurnProbability`
+#' and `sim$scfm_BurnProbability` respectively. This module no longer estimates burn
+#' probability itself: it only reads one of these two rasters.
+#'
+#' @param sim A `simList`.
+#' @param fireModel `P(sim)$fireModel`: `"fireSense"`, `"scfm"`, or `NA` to auto-detect
+#'   from whichever of the two inputs is supplied.
+#'
+#' @return `SpatRaster`; `sim$fireSense_BurnProbability` or `sim$scfm_BurnProbability`.
+getBurnProbability <- function(sim, fireModel) {
+  hasFireSense <- !is.null(sim$fireSense_BurnProbability)
+  hasScfm <- !is.null(sim$scfm_BurnProbability)
 
-simulateFire <- function(ign_probs, esc_probs, spread_probs, landscape){
-  ignitions <- runif(length(ign_probs)) < ign_probs
-  # predict escapes
-  # NA escape probabilities are treated as "does not escape" (0) rather than dropped,
-  # to keep indices aligned with which(ignitions)
-  esc_probs2 <- esc_probs[ignitions]
-  esc_probs2[is.na(esc_probs2)] <- 0
-  escapes <- runif(length(esc_probs2)) < esc_probs2
-  
-  startSpread <- which(ignitions)[escapes]
-  
-  # simulate spread
-  spread_prediction <- SpaDES.tools::spread2(
-    landscape = landscape,
-    start = startSpread,
-    spreadProb = spread_probs,
-    asRaster = FALSE
+  if (is.na(fireModel)) {
+    if (hasFireSense && hasScfm) {
+      stop("LandRCBM_fireRisk: both sim$fireSense_BurnProbability and sim$scfm_BurnProbability ",
+           "are supplied; set P(sim)$fireModel to \"fireSense\" or \"scfm\" to pick one.", call. = FALSE)
+    }
+    if (!hasFireSense && !hasScfm) {
+      stop("LandRCBM_fireRisk: neither sim$fireSense_BurnProbability nor sim$scfm_BurnProbability ",
+           "is supplied. Run fireSense_burnProbability or scfm_burnProbability first.", call. = FALSE)
+    }
+    fireModel <- if (hasFireSense) "fireSense" else "scfm"
+  }
+
+  switch(
+    fireModel,
+    fireSense = {
+      if (!hasFireSense)
+        stop("LandRCBM_fireRisk: P(sim)$fireModel is \"fireSense\" but sim$fireSense_BurnProbability ",
+             "is not supplied. Run fireSense_burnProbability first.", call. = FALSE)
+      sim$fireSense_BurnProbability
+    },
+    scfm = {
+      if (!hasScfm)
+        stop("LandRCBM_fireRisk: P(sim)$fireModel is \"scfm\" but sim$scfm_BurnProbability ",
+             "is not supplied. Run scfm_burnProbability first.", call. = FALSE)
+      sim$scfm_BurnProbability
+    },
+    stop("LandRCBM_fireRisk: P(sim)$fireModel must be \"fireSense\", \"scfm\", or NA; got \"",
+         fireModel, "\".", call. = FALSE)
   )
-  fires <- rep(0L, length(ignitions))
-  fires[spread_prediction$pixels] <- 1L
-  return(fires)
 }
 
 calculateFireSusceptibility <- function(cbm_vars, cTransfers, rasterToMatch){
@@ -230,4 +233,3 @@ ggplotFn <- function(data, ...) {
   ggplot2::ggplot(data, ggplot2::aes(TheSample)) +
     ggplot2::geom_histogram(...)
 }
-
