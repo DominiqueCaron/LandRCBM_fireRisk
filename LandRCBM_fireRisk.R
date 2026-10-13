@@ -24,6 +24,10 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first plot event should occur."),
     defineParameter(".plotInterval", "numeric", NA, NA, NA,
                     "Describes the simulation time interval between plot events."),
+    defineParameter(".runInterval", "numeric", default = 1, NA, NA,
+                    desc = paste("Years between fire-risk estimates. `NA` estimates once, at",
+                                 "`.runInitialTime`. Each estimate uses that year's ignition/spread",
+                                 "covariates and model predictions, held fixed across all `nIterations` draws.")),                
     defineParameter(".saveInitialTime", "numeric", NA, NA, NA,
                     "Describes the simulation time at which the first save event should occur."),
     defineParameter(".saveInterval", "numeric", NA, NA, NA,
@@ -61,7 +65,7 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     init = {
 
       # do stuff for this event
-      sim <- scheduleEvent(sim, start(sim), "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+      sim <- scheduleEvent(sim, eventTime = P(sim)$.runInitialTime, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
       
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "LandRCBM_fireRisk", "plot")
@@ -96,10 +100,9 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
       sim$fireRisk <- sim$burnProbability * sim$fireSusceptibility
 
       # schedule future event(s)
-      if (time(sim) < end(sim)) {
-        sim <- scheduleEvent(sim, min(time(sim) + 1, end(sim)), "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
-      }
-
+      if (!is.na(P(sim)$.runInterval))
+        sim <- scheduleEvent(sim, time(sim) + P(sim)$.runInterval, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+      
     },
     warning(noEventWarning(sim))
   )
