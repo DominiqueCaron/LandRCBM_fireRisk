@@ -95,6 +95,8 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     },
     calculateFireRisk = {
       
+      terra::compareGeom(sim$rasterToMatch, sim$burnProbability, stopOnError = TRUE)
+      
       sim$fireSusceptibility <- calculateFireSusceptibility(sim$cbm_vars, sim$cTransfers, sim$rasterToMatch)
       
       sim$fireRisk <- sim$burnProbability * sim$fireSusceptibility
