@@ -24,6 +24,8 @@ defineModule(sim, list(
                     "Describes the simulation time at which the first plot event should occur."),
     defineParameter(".plotInterval", "numeric", NA, NA, NA,
                     "Describes the simulation time interval between plot events."),
+    defineParameter(".runInitialTime", "numeric", start(sim), NA, NA,
+                    "Describes the simulation time at which the first fire-risk estimate should occur."),
     defineParameter(".runInterval", "numeric", default = 1, NA, NA,
                     desc = paste("Years between fire-risk estimates. `NA` estimates once, at",
                                  "`.runInitialTime`. Each estimate uses that year's ignition/spread",
@@ -65,7 +67,13 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
     init = {
 
       # do stuff for this event
-      sim <- scheduleEvent(sim, eventTime = P(sim)$.runInitialTime, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+      # eventPriority must run after scfm_burnProbability's "estimate" event (priority 7.51)
+      # so burnProbability is available, AND after CBM_core's "annual_carbonDynamics" event
+      # (priority 8.5): LandRCBM_split3pools's "annualIncrements" event (priority 7, which runs
+      # earlier in the same timestep) strips spatial_unit_id, mean_annual_temperature, species,
+      # area, and sw_hw from cbm_vars$state when it rebuilds cohort groups for the new year;
+      # those columns are only restored once CBM_core runs during annual_carbonDynamics. 
+      sim <- scheduleEvent(sim, eventTime = P(sim)$.runInitialTime, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 8.6)
       
       # schedule future event(s)
       sim <- scheduleEvent(sim, P(sim)$.plotInitialTime, "LandRCBM_fireRisk", "plot")
@@ -103,7 +111,7 @@ doEvent.LandRCBM_fireRisk = function(sim, eventTime, eventType) {
 
       # schedule future event(s)
       if (!is.na(P(sim)$.runInterval))
-        sim <- scheduleEvent(sim, time(sim) + P(sim)$.runInterval, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 5.20)
+        sim <- scheduleEvent(sim, time(sim) + P(sim)$.runInterval, "LandRCBM_fireRisk", "calculateFireRisk", eventPriority = 8.6)
       
     },
     warning(noEventWarning(sim))
